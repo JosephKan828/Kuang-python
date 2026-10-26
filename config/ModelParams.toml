@@ -1,0 +1,75 @@
+# ====================================================
+# Model parameter following Kuang (2008)
+# ====================================================
+
+[Dynamics]
+c1      = 1.0 # Phase speed of 1st mode
+c2      = 0.5 # Phase speed of 2nd mode
+
+epsilon = 0.1 # dynamical damping
+
+[Moisture.Stratification]
+# Background moisture stratification
+a1 = 1.4
+a2 = 0.0
+
+[Moisture.Interaction]
+# convective drying and advection
+d1 = 1.1  # convective drying from 1st mode
+d2 = -1.0 # convective drying from 2nd mode
+
+m1 = 0.3  # Combining effect of convective drying and vertical advection from 1st mode
+m2 = 1.0  # Conbining effect of convective drying and vertical advection from 2nd mode
+
+[Convection.CQE]
+# Parameters for CQE
+F    = 4.0   # Clausius-Clapeyron relation
+b1   = 1.0   # Consumption rate of subcloud MSE from 1st mode
+b2   = 2.0   # Consumption rate of subcloud MSE from 2nd mode
+f    = 0.5   # Weighting of 1st vs. 2nd modes
+tauL = 0.083 # relaxation time scale, unit: day
+
+[Convection.Heating]
+# Relations between lower-, upper-troposphere, and mid-tropospheric moisture perturbations
+
+g0 = 0.0 # relation between lower- and upper-tropospheric convective heating in one-way model
+gq = 0.7 # relation between moisture and convective heating in one-way model
+
+r0 = 1.0 # relation between lower- and upper-tropospheric convective heating in full model
+rq = 0.7 # relation between moisture and convective heating in full model
+
+[Radiation.Scales]
+# Factor to adjust magnitude of moisture-radiative feedback
+RadqScale = 0.0
+# Factor to adjust magnitude of temperature-radiative feedback
+RadtScale = 0.0
+# Factor to adjust magnitude of cloud-radiative feedback
+RadwScale = 1.0
+
+[Radiation.Moisture]
+Rq1LW = 3.32   # moisture contributes to 1st-mode LW
+Rq2LW = 29.5   # mositure contributes to 2nd-mode LW
+Rq1SW = 6.545  # moisture contributes to 1st-mode SW
+Rq2SW = -11.69 # moisture contributes to 2nd-mode SW
+
+[Radiation.Temperature]
+Rt11LW = -0.0382  # T1 contributes to 1st-mode LW
+Rt12LW = 0.0110   # T1 contributes to 2nd-mode LW
+Rt21LW = -0.00244 # T2 contributes to 1st-mode LW
+Rt22LW = -0.0686  # T2 contributes to 2nd-mode LW
+
+Rt11SW = 5.55e-5  # T1 contributes to 1st-mode SW
+Rt12SW = -0.00023 # T1 contributes to 2nd-mode SW
+Rt21SW = 0.00017  # T2 contributes to 1st-mode SW
+Rt22SW = 0.000214 # T2 contributes to 2nd-mode SW
+
+[Radiation.Cloud]
+Rw11LW = 0.0335  # w1 contributes to 1st-mode LW
+Rw12LW = 0.0455   # w1 contributes to 2nd-mode LW
+Rw21LW = -0.0414 # w2 contributes to 1st-mode LW
+Rw22LW = -0.0291  # w2 contributes to 2nd-mode LW
+
+Rw11SW = 0.0130  # w1 contributes to 1st-mode SW
+Rw12SW = -0.0371 # w1 contributes to 2nd-mode SW
+Rw21SW = -0.00508 # w2 contributes to 1st-mode SW
+Rw22SW = 0.0378  # w2 contributes to 2nd-mode SW

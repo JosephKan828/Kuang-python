@@ -1,0 +1,49 @@
+# Scientific figure style for slides and manuscripts.
+# Font sizes are in points; figure dimensions are in inches.
+# At half the exported width, 20 pt labels appear at approximately 10 pt.
+
+font.family: serif
+font.sans-serif: DejaVu Sans
+font.size: 18
+mathtext.fontset: dejavusans
+text.usetex: False
+axes.titlesize: 22
+axes.labelsize: 20
+axes.labelpad: 10
+axes.linewidth: 1.2
+axes.grid: False
+axes.spines.top: True
+axes.spines.right: True
+axes.formatter.use_mathtext: True
+xtick.labelsize: 16
+ytick.labelsize: 16
+xtick.direction: in
+ytick.direction: in
+xtick.top: True
+ytick.right: True
+xtick.major.size: 6
+ytick.major.size: 6
+xtick.major.width: 1.2
+ytick.major.width: 1.2
+xtick.minor.visible: True
+ytick.minor.visible: True
+xtick.minor.size: 3
+ytick.minor.size: 3
+xtick.minor.width: 0.8
+ytick.minor.width: 0.8
+lines.linewidth: 2.5
+lines.markersize: 6
+legend.fontsize: 16
+legend.frameon: False
+legend.handlelength: 2.5
+figure.figsize: 14, 5.5
+figure.dpi: 120
+figure.facecolor: white
+axes.facecolor: white
+savefig.dpi: 300
+savefig.facecolor: white
+savefig.transparent: False
+savefig.bbox: tight
+savefig.pad_inches: 0.1
+pdf.fonttype: 42
+ps.fonttype: 42

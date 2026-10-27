@@ -28,7 +28,10 @@ class InitialCondition(Operator):
 
     def initial_ensemble(self, k: float, members: int, rng=None) -> np.ndarray:
         """
-            Generate independent noisy states from one eigenmode calculation.
+            Generate zero-mean complex states weighted by the most unstable mode.
+            Each component has an independent complex normal multiplier with
+            RMS magnitude 0.1, matching Julia's 0.1 * randn(ComplexF64).
+            Component-wise randomization mixes eigenmodes.
             Return (n_state, members). An optional NumPy random generator keeps
             API runs independent of the global random state.
         """
@@ -49,11 +52,12 @@ class InitialCondition(Operator):
 
         most_unstable_mode = eigvecs[:, max_index] / np.linalg.norm(eigvecs[:, max_index])
 
-        # add random noise on the initial condition
+        # Randomize around zero, using the eigenvector as component weights.
         rng = np.random if rng is None else rng
         # draw real then imaginary noise per member, preserving seeded ordering
-        noise = rng.normal(0, 0.1, (members, 2, most_unstable_mode.size))
-        initial_states = most_unstable_mode[None, :] + (noise[:, 0, :] + 1j * noise[:, 1, :])
+        # Julia's complex standard normal has variance 1/2 in each part.
+        noise = rng.normal(0, 0.1 / np.sqrt(2), (members, 2, most_unstable_mode.size))
+        initial_states = most_unstable_mode[None, :] * (noise[:, 0, :] + 1j * noise[:, 1, :])
 
         return initial_states.T
 

@@ -78,9 +78,9 @@ class TimeStepper(InitialCondition):
             ensemble     : (n_state, n_members) -> (n_time, n_state, n_members)
 
             n_state is four for one-way and six for two-way systems. If no
-            initial state is supplied, use the most unstable eigenmode with
-            random complex noise from InitialCondition. Noise is added only
-            at initialization.
+            initial state is supplied, use zero-mean complex random states
+            weighted component-wise by the most unstable eigenmode from
+            InitialCondition. Randomization occurs only at initialization.
         """
 
         # introduce the time axis and evolution operator

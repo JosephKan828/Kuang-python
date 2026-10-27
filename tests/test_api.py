@@ -18,6 +18,7 @@ sys.path.insert(0, str(SRC))
 from API import (Domain, ModelConfig, Operator, analyze_eigenmodes, iter_simulation,
                  run_model, run_simulation, simulate_wavenumber)
 from Output.ModelIO import SimulationWriter
+from ModelCalculation.InitCondition import InitialCondition
 from SimulationAnalysis.SimulationRun import SimulationRun, TimeSeries
 
 
@@ -50,10 +51,11 @@ class APITests(unittest.TestCase):
                 values, vectors = np.linalg.eig(matrix)
                 mode = vectors[:, np.argmax(values.real)]
                 mode = mode / np.linalg.norm(mode)
-                legacy_rng = np.random.RandomState(self.config.seed)
+                expected_rng = np.random.RandomState(self.config.seed)
+                sigma = 0.1 / np.sqrt(2)
                 initial = np.column_stack([
-                    mode + (legacy_rng.normal(0, 0.1, mode.shape)
-                            + 1j * legacy_rng.normal(0, 0.1, mode.shape))
+                    mode * (expected_rng.normal(0, sigma, mode.shape)
+                            + 1j * expected_rng.normal(0, sigma, mode.shape))
                     for _ in range(self.config.domain.Ens)
                 ])
                 with patch("numpy.linalg.eig", wraps=np.linalg.eig) as eig:
@@ -65,6 +67,27 @@ class APITests(unittest.TestCase):
                 explicit = simulate_wavenumber(self.config, k, initial[:, 0])
                 assert_allclose(explicit.states, result.states[:, :, 0], atol=1e-11)
         self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_initial_ensemble_is_zero_mean_with_independent_complex_weights(self):
+        for model in ("one-way", "two-way"):
+            with self.subTest(model=model):
+                initializer = InitialCondition(model, 1.0)
+                k = 5.0
+                values, vectors = np.linalg.eig(initializer.operator(k, 1.0))
+                mode = vectors[:, np.argmax(values.real)]
+                mode /= np.linalg.norm(mode)
+                samples = initializer.initial_ensemble(
+                    k, 20000, rng=np.random.RandomState(2026),
+                )
+                nonzero = np.abs(mode) > 1e-12
+                weights = samples[nonzero] / mode[nonzero, None]
+                assert_allclose(weights.mean(axis=1), 0, atol=0.003)
+                assert_allclose((weights.real ** 2).mean(axis=1), 0.005, atol=0.0003)
+                assert_allclose((weights.imag ** 2).mean(axis=1), 0.005, atol=0.0003)
+                # Independent component multipliers must not act like a single
+                # random amplitude shared by the entire eigenvector.
+                covariance = weights @ weights.conj().T / weights.shape[1]
+                assert_allclose(covariance, 0.01 * np.eye(weights.shape[0]), atol=0.00035)
 
     def test_api_preserves_global_rng(self):
         before = np.random.get_state()

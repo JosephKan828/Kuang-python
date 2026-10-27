@@ -305,7 +305,13 @@ ensemble members increase output size; `--x-block-size` controls working memory.
 The two-way state order is `(w1, w2, T1, T2, q, L)`, and one-way is `(T1, T2, q, L)`.
 Two-way heating uses `U = r0*L + rq*(q - 1.5*T1)`, `J1 = L + U`, `J2 = L - U`.
 One-way heating follows its operator: `J1 = L`, `J2 = g0*L + gq*(q - 1.5*T1)`.
-Initial conditions retain the current Python model's additive complex noise.
+Initial conditions are zero-mean complex random states weighted component-wise
+by the normalized maximum-growth eigenvector: `q_j = 0.1 * v_j * xi_j`, where
+each independent `xi_j` has real and imaginary variance `1/2`. This matches
+Julia's multiplicative initialization with unit component scale factors.
+Component-wise randomization mixes eigenmodes and does not enforce eastward
+propagation. The ensemble mean is zero in expectation, not exactly zero for a
+finite ensemble. Previously generated runs used additive noise around `v`.
 
 Filenames and core variable names follow Julia, but Python HDF5 axis order is
 explicit above. Julia/HDF5 dimension conventions and complex storage can differ;

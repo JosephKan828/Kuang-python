@@ -45,8 +45,10 @@ class ShellPipelineTests(unittest.TestCase):
             cwd=self.root, env=self.env, text=True, capture_output=True,
         )
 
-    def recorded_calls(self, include_completion=False):
+    def recorded_calls(self, include_completion=False, include_checks=False):
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        if not include_checks:
+            calls = [call for call in calls if not (call[0] == "EmailNotification.py" and "--check-config" in call)]
         return calls if include_completion else [call for call in calls
                                                 if call[0] not in ("RunRecord.py", "EmailNotification.py")]
 
@@ -101,6 +103,11 @@ class ShellPipelineTests(unittest.TestCase):
         self.assertEqual(json.loads((log_dir / "EmailNotification.json").read_text())["failure_reason"], "configuration_error")
         self.assertIn("results are saved", (log_dir / "email.log").read_text())
         self.assertIn("Pipeline completed", result.stdout)
+        self.assertIn("KUANG_SMTP_PASSWORD", result.stderr)
+        self.assertIn("numerical stages will still run", result.stderr)
+        self.assertEqual(self.recorded_calls(include_completion=True, include_checks=True)[0],
+                         ["EmailNotification.py", "--check-config"])
+        self.assertIn("KUANG_SMTP_PASSWORD", (log_dir / "email_configuration.log").read_text())
 
     def test_optional_plot_and_skip_reconstruction_and_email(self):
         self.env["KUANG_NOTIFY_EMAIL"] = "recipient@example.com"
@@ -185,6 +192,7 @@ class ShellPipelineTests(unittest.TestCase):
                           ("--reconstruction-workers", "0"), ("--reconstruction-workers", "-1"),
                           ("--reconstruction-workers", "1.5"), ("--reconstruction-workers",),
                           ("--notify-email",),
+                          ("--prompt-email-password",),
                           ("--skip-simulation", "--skip-analysis", "--skip-reconstruction"),
                           ("--skip-simulation", "--skip-analysis"),
                           ("--skip-simulation", "--skip-analysis", "--no-plot"),

@@ -181,16 +181,13 @@ For a Gmail **sending** account, from the project root:
 ```bash
 source config/EmailNotification.env.example
 export KUANG_SMTP_USER='YOUR_SENDING_ACCOUNT@gmail.com'
-read -r -s -p 'SMTP app password: ' KUANG_SMTP_PASSWORD
-export KUANG_SMTP_PASSWORD
-printf '\n'
-bash scripts/RunScript.sh --seed 42
+bash scripts/RunScript.sh --prompt-email-password --seed 42
 ```
 
 The example sets the recipient to `josephyck0828@gmail.com`. The sending account
 can be different. Gmail requires an eligible account with 2-Step Verification
 and an [app password](https://support.google.com/mail/answer/185833?hl=en) for
-this password-based SMTP method. Enter the app password at the terminal prompt;
+this password-based SMTP method. Enter the app password at the launcher's hidden terminal prompt;
 do not put it in the command, source files, or run configuration. Gmail's
 [SMTP settings](https://developers.google.com/workspace/gmail/imap/imap-smtp)
 use `smtp.gmail.com` with port 465/SSL or port 587/STARTTLS.
@@ -199,8 +196,36 @@ For another provider, replace `KUANG_SMTP_HOST`, `KUANG_SMTP_PORT`,
 `KUANG_SMTP_SECURITY` (`ssl` or `starttls`), `KUANG_SMTP_USER`, and
 `KUANG_SMTP_PASSWORD`. `KUANG_SMTP_FROM` optionally overrides the sender address;
 otherwise the username is used. Authentication occurs over verified TLS.
-These variables must be exported in the process environment of the launcher,
-including when using a batch scheduler or a new terminal session.
+These variables must be exported in the process environment of the launcher.
+`--prompt-email-password` reads the password from the interactive terminal and
+exports it for the launcher and its children, so no separate password export is
+needed. It is not written to the launch command or logs. For a batch scheduler,
+provide `KUANG_SMTP_PASSWORD` in the job environment instead of using the prompt.
+
+Use `source config/EmailNotification.env.example`, rather than running that file
+with `bash`: a child shell cannot export its settings back into the launcher’s
+parent shell. Replace the example sending account, then use the password prompt
+or enter/export the password in the same terminal. `--notify-email` only sets the recipient, not SMTP login
+settings. The environment example deliberately contains no password.
+
+`python scripts/EmailNotification.py --check-config` checks for missing or invalid
+settings without connecting or sending an email. The launcher also performs this
+check before numerical stages and saves `email_configuration.log`. Configuration
+errors list the affected variable names without showing values. A warning lets
+the numerical stages continue; successful validation confirms settings are
+present, not that authentication or delivery will succeed.
+
+To diagnose connection errors without entering a password, run:
+
+```bash
+python scripts/EmailNotification.py --check-connection
+```
+
+This checks the configured SMTP host, TLS handshake, and EHLO response. It does
+not authenticate or send mail, and does not need `KUANG_SMTP_USER`,
+`KUANG_SMTP_PASSWORD`, or `KUANG_NOTIFY_EMAIL`. For Gmail, use port 465 with
+`KUANG_SMTP_SECURITY=ssl`, or port 587 with `KUANG_SMTP_SECURITY=starttls`.
+Passing this check verifies reachability only; it does not test the account.
 
 Emails contain the run ID, output path, timestamps, working directory, and launch
 command. They include no simulation-data attachments. SMTP acceptance or failure
@@ -224,6 +249,11 @@ authentication failure without saving raw server replies or credentials. Wait
 for the provider's restriction to clear before manually retrying. A connection
 loss after transmission can leave delivery uncertain, so check the inbox before
 retrying that case. Failure during logout alone does not undo SMTP acceptance.
+Connection failures also record `smtp_stage`: `connect`, `ehlo`, `starttls`,
+`authenticate`, or `submit`. A disconnect during `submit` sets
+`delivery_uncertain=true`, because the server may have received the message
+before its acknowledgement was lost. Do not enable raw SMTP debug logging when
+diagnosing authentication: it can expose credentials.
 
 To send or retry a notification for an existing completed run, after setting
 the same environment variables:
@@ -231,6 +261,15 @@ the same environment variables:
 ```bash
 python scripts/EmailNotification.py /path/to/logs/INVOCATION_ID/RunRecord.json
 ```
+
+If the password has not been exported, retry with a hidden prompt:
+
+```bash
+python scripts/EmailNotification.py --prompt-password /path/to/logs/INVOCATION_ID/RunRecord.json
+```
+
+The prompt is used only for this invocation. A new terminal or a separately
+launched batch job does not inherit a password entered in another process.
 
 This command sends another email and replaces that invocation's email-status
 file. Set `KUANG_NOTIFY_EMAIL=''` to disable notifications. Failed simulations

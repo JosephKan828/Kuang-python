@@ -12,6 +12,7 @@ launch_command=("$BASH" "$script_dir/RunScript.sh" "$@")
 started_at="$(TZ=Asia/Taipei date --iso-8601=seconds)"
 python_bin="${PYTHON:-python}"
 notification_email="${KUANG_NOTIFY_EMAIL:-}"
+prompt_email_password=false
 
 # These defaults can also be overridden with command-line options below.
 model_args=(--model two-way --rad-scaling 1.0)
@@ -43,6 +44,7 @@ Workflow options:
   --plot                     Generate eigen-analysis figures (default: off)
   --no-plot                  Skip plotting
   --notify-email ADDRESS     Send completion email to ADDRESS (default: $KUANG_NOTIFY_EMAIL)
+  --prompt-email-password    Read the SMTP app password privately before starting
   --no-email                 Disable email for this invocation
   --x-block-size N           Reconstruction spatial block size (default: 64)
   --reconstruction-workers N Reconstruction processes (default: 4; 1 for serial)
@@ -91,6 +93,7 @@ while [[ $# -gt 0 ]]; do
         --plot) run_plot=true; shift ;;
         --no-plot) run_plot=false; shift ;;
         --no-email) notification_email=""; shift ;;
+        --prompt-email-password) prompt_email_password=true; shift ;;
         --notify-email)
             require_value "$@"
             notification_email="$2"
@@ -140,6 +143,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 export KUANG_NOTIFY_EMAIL="$notification_email"
+if "$prompt_email_password"; then
+    [[ -n "$notification_email" ]] || fail '--prompt-email-password needs --notify-email or KUANG_NOTIFY_EMAIL.'
+    if ! IFS= read -r -s -p 'SMTP app password: ' KUANG_SMTP_PASSWORD </dev/tty; then
+        fail 'Could not read the password; use an interactive terminal or export KUANG_SMTP_PASSWORD.'
+    fi
+    printf '\n' > /dev/tty
+    [[ -n "${KUANG_SMTP_PASSWORD//[[:space:]]/}" ]] || fail 'The SMTP app password was empty.'
+    export KUANG_SMTP_PASSWORD
+fi
 
 # ====================================================
 # Check the selected workflow
@@ -222,6 +234,15 @@ run_stage() {
 }
 
 printf 'Output directory: %s\nPython: %s\nLogs: %s\n' "$output_dir" "$python_bin" "$log_dir"
+if [[ -n "$notification_email" ]]; then
+    if "$python_bin" -u "$script_dir/EmailNotification.py" --check-config \
+            > "$log_dir/email_configuration.log" 2>&1; then
+        cat -- "$log_dir/email_configuration.log"
+    else
+        cat -- "$log_dir/email_configuration.log" >&2
+        printf 'Email configuration needs attention; numerical stages will still run.\n' >&2
+    fi
+fi
 if "$run_simulation"; then run_stage simulation Simulation.py "${common_args[@]}"; fi
 if "$run_analysis"; then run_stage eigen_analysis EigenAnalysis.py "${common_args[@]}"; fi
 if "$run_reconstruction"; then run_stage reconstruction Reconstruct.py "${reconstruction_args[@]}"; fi

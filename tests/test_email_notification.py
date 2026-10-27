@@ -2,16 +2,19 @@
 
 import contextlib
 import io
+import getpass
 import json
+import os
 from pathlib import Path
 import smtplib
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import ANY, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from EmailNotification import notify_completed_run
+from EmailNotification import main as notification_main, notify_completed_run
 from RunRecord import record_completed_run
 
 
@@ -39,6 +42,28 @@ class EmailNotificationTests(unittest.TestCase):
         smtp_ssl.assert_not_called()
         smtp.assert_not_called()
         self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_prompt_supplies_password_to_the_sending_process(self):
+        path = self.output / "RunRecord.json"
+        path.write_text(json.dumps(self.record))
+        env = dict(self.env, KUANG_SMTP_PASSWORD="")
+        stdout = io.StringIO()
+        with patch.dict("os.environ", env, clear=True), \
+             patch("EmailNotification.getpass.getpass", return_value="typed-secret") as prompt, \
+             patch("EmailNotification.smtplib.SMTP_SSL") as smtp, \
+             contextlib.redirect_stdout(stdout):
+            smtp.return_value.send_message.return_value = {}
+            self.assertEqual(notification_main(["--prompt-password", str(path)]), 0)
+            prompt.assert_called_once()
+            smtp.return_value.login.assert_called_once_with("sender@example.com", "typed-secret")
+        self.assertNotIn("typed-secret", stdout.getvalue() + (self.output / "EmailNotification.json").read_text())
+
+    def test_prompt_refuses_visible_input_without_a_terminal(self):
+        with patch("EmailNotification.getpass.getpass", side_effect=getpass.GetPassWarning), \
+             patch("EmailNotification.smtplib.SMTP_SSL") as smtp, \
+             contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(notification_main(["--prompt-password", "--check-config"]), 1)
+            smtp.assert_not_called()
 
     def test_ssl_message_contains_run_details_but_no_credentials(self):
         with patch("EmailNotification.smtplib.SMTP_SSL") as smtp, \
@@ -82,6 +107,40 @@ class EmailNotificationTests(unittest.TestCase):
                 self.assertFalse(notify_completed_run(self.record, environ=dict(self.env, **updates)))
                 smtp_ssl.assert_not_called()
                 smtp.assert_not_called()
+
+    def test_configuration_errors_identify_settings_without_exposing_values(self):
+        for updates, expected in (
+            ({"KUANG_SMTP_PASSWORD": ""}, "KUANG_SMTP_PASSWORD"),
+            ({"KUANG_SMTP_HOST": "", "KUANG_SMTP_USER": ""}, "KUANG_SMTP_HOST, KUANG_SMTP_USER"),
+            ({"KUANG_SMTP_PORT": "test-secret"}, "KUANG_SMTP_PORT"),
+            ({"KUANG_SMTP_SECURITY": "test-secret"}, "KUANG_SMTP_SECURITY"),
+            ({"KUANG_SMTP_USER": "your-sending-account@gmail.com"}, "Replace the example KUANG_SMTP_USER"),
+        ):
+            stderr = io.StringIO()
+            with self.subTest(expected=expected), patch("EmailNotification.smtplib.SMTP_SSL") as smtp, \
+                 contextlib.redirect_stderr(stderr):
+                self.assertFalse(notify_completed_run(self.record, environ=dict(self.env, **updates)))
+                smtp.assert_not_called()
+                text = (self.output / "EmailNotification.json").read_text()
+                self.assertIn(expected, json.loads(text)["configuration_error"])
+                self.assertIn(expected, stderr.getvalue())
+                self.assertNotIn("test-secret", text + stderr.getvalue())
+
+    def test_configuration_check_cli_needs_no_run_or_connection(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "EmailNotification.py"
+        for password, expected_code in (("test-secret", 0), ("", 1)):
+            with self.subTest(configured=bool(password)):
+                env = dict(os.environ, **self.env)
+                env["KUANG_SMTP_PASSWORD"] = password
+                result = subprocess.run([sys.executable, str(script), "--check-config"],
+                                        env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected_code, result.stderr)
+                if expected_code:
+                    self.assertIn("KUANG_SMTP_PASSWORD", result.stderr)
+                else:
+                    self.assertIn("authentication and delivery are not tested", result.stdout)
+                self.assertNotIn("test-secret", result.stdout + result.stderr)
+        self.assertEqual(list(self.output.iterdir()), [])
 
     def test_mail_failure_preserves_completed_run_and_redacts_server_reply(self):
         run = self.output / "run"
@@ -156,6 +215,49 @@ class EmailNotificationTests(unittest.TestCase):
             self.assertFalse(notify_completed_run(self.record, environ=self.env))
             smtp.assert_called_once()
         self.assertEqual(json.loads((self.output / "EmailNotification.json").read_text())["failure_reason"], "connection_error")
+
+    def test_connection_check_does_not_need_credentials_or_send(self):
+        for security, smtp_name in (("ssl", "SMTP_SSL"), ("starttls", "SMTP")):
+            env = {"KUANG_SMTP_HOST": "smtp.example.com", "KUANG_SMTP_SECURITY": security}
+            with self.subTest(security=security), patch.dict("os.environ", env, clear=True), \
+                 patch(f"EmailNotification.smtplib.{smtp_name}") as smtp, \
+                 patch("EmailNotification.getpass.getpass") as prompt, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                smtp.return_value.ehlo.return_value = (250, b"OK")
+                self.assertEqual(notification_main(["--check-connection"]), 0)
+                smtp.return_value.login.assert_not_called()
+                smtp.return_value.send_message.assert_not_called()
+                prompt.assert_not_called()
+                smtp.return_value.close.assert_called_once()
+
+    def test_disconnect_reports_the_stage_without_exposing_server_text(self):
+        for stage in ("connect", "authenticate", "submit"):
+            stderr = io.StringIO()
+            with self.subTest(stage=stage), patch("EmailNotification.smtplib.SMTP_SSL") as smtp, \
+                 contextlib.redirect_stderr(stderr):
+                error = smtplib.SMTPServerDisconnected("test-secret")
+                if stage == "connect":
+                    smtp.side_effect = error
+                else:
+                    method = "login" if stage == "authenticate" else "send_message"
+                    getattr(smtp.return_value, method).side_effect = error
+                self.assertFalse(notify_completed_run(self.record, environ=self.env))
+                text = (self.output / "EmailNotification.json").read_text()
+                status = json.loads(text)
+                self.assertEqual(status["smtp_stage"], stage)
+                self.assertEqual(status.get("delivery_uncertain", False), stage == "submit")
+                self.assertIn(f"SMTP stage: {stage}", stderr.getvalue())
+                self.assertNotIn("test-secret", stderr.getvalue() + text)
+
+    def test_starttls_disconnect_closes_connection_and_reports_stage(self):
+        env = dict(self.env, KUANG_SMTP_SECURITY="starttls")
+        with patch("EmailNotification.smtplib.SMTP") as smtp, \
+             contextlib.redirect_stderr(io.StringIO()):
+            smtp.return_value.starttls.side_effect = smtplib.SMTPServerDisconnected()
+            self.assertFalse(notify_completed_run(self.record, environ=env))
+            smtp.return_value.close.assert_called_once()
+            smtp.return_value.login.assert_not_called()
+        self.assertEqual(json.loads((self.output / "EmailNotification.json").read_text())["smtp_stage"], "starttls")
 
 
 if __name__ == "__main__":

@@ -136,6 +136,32 @@ that option, the parent is `output/pipeline/` under the project root. Timestamps
 use Asia/Taipei and include fractional seconds and the process ID to separate
 closely spaced runs. The resolved directory is printed when the pipeline starts.
 
+After all requested stages succeed, both `RunScript.sh` and `RunScript.py` save
+a completion record under `RUN_DIRECTORY/logs/INVOCATION_ID/RunRecord.json` and
+append the same record to `RunHistory.jsonl` in the run directory's parent.
+The console prints both record locations and the completed output directory.
+For example, `--output-dir output/shell_run` in the shell launcher produces:
+
+```text
+output/shell_run/RunHistory.jsonl
+output/shell_run/TIMESTAMP/logs/INVOCATION_ID/RunRecord.json
+```
+
+Each record includes the absolute output directory, its folder name as `run_id`,
+the invocation ID, start and completion timestamps in Asia/Taipei (`+08:00`),
+the working directory, and the exact launch command as both a quoted string and
+an argument array. The command records supplied options; `Config.json` contains
+the resolved simulation settings. Use the recorded working directory when
+interpreting relative command arguments. Identical random seeds alone do not
+make results reproducible if the source or configuration changes.
+
+`RunHistory.jsonl` contains one JSON object per successful launcher invocation.
+Failed pipelines do not receive a completion entry. Processing an existing run
+with `--run-dir` retains its run ID and adds a separate invocation record;
+previous entries are preserved. These automatic records apply to the two
+launchers; direct API calls and individual stage scripts retain their existing
+output behavior.
+
 To process an existing run, use `--run-dir PATH/TIMESTAMP` instead; replace
 `TIMESTAMP` in these examples with the actual folder name. This uses the directory
 directly, without creating another timestamped child. `--output-dir` and

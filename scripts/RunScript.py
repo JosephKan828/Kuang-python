@@ -7,8 +7,11 @@
 # ====================================================
 
 import argparse
+from pathlib import Path
+import sys
 
 from RunConfig import add_run_arguments, config_from_arguments, output_from_arguments
+from RunRecord import local_timestamp, record_completed_run
 from API import run_model
 
 # ====================================================
@@ -16,6 +19,8 @@ from API import run_model
 # ====================================================
 
 def main() -> None:
+    started_at = local_timestamp()
+    command = [sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]]
     parser = argparse.ArgumentParser(description=__doc__)
     add_run_arguments(parser)
     parser.add_argument("--reconstruct", action="store_true", help="Also write Fourier and Galerkin fields")
@@ -33,7 +38,8 @@ def main() -> None:
     if not args.no_plot:
         from Plot_Eigen import main as plot_eigen
         plot_eigen([output_path])
-    print("Model run completed.", flush=True)
+    record_completed_run(output_path, command, started_at)
+    print(f"Model run completed. Results: {output_path}", flush=True)
 
 
 if __name__ == "__main__":

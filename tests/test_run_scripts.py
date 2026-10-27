@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,31 @@ class RunScriptTests(unittest.TestCase):
         self.domain.dx = self.domain.Xmax / 4
         self.domain.dz = self.domain.Zmax / 2
         self.domain.nondim_k = [0.5, 1.0]
+
+    def test_python_launcher_records_only_successful_completion(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "RunScript.py"
+        run = self.output / "completed run"
+        command = [sys.executable, str(script), "--output-dir", str(run),
+                   "--members", "1", "--tmax", "0.25", "--dt", "0.25",
+                   "--dx", "40000000", "--dz", "7000", "--zonal-wavenumbers", "1",
+                   "--seed", "7", "--no-plot"]
+        result = subprocess.run(command, cwd=self.output, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        history_path = self.output / "RunHistory.jsonl"
+        record = json.loads(history_path.read_text())
+        self.assertEqual(record["argv"], command)
+        self.assertEqual(record["output_directory"], str(run))
+        self.assertEqual(record["run_id"], run.name)
+        self.assertEqual(record["working_directory"], str(self.output))
+        self.assertTrue(record["completed_at"].endswith("+08:00"))
+        self.assertEqual(json.loads(Path(record["record_path"]).read_text()), record)
+        self.assertIn(str(history_path), result.stdout)
+        self.assertIn(f"Model run completed. Results: {run}", result.stdout)
+        # An output collision must not publish a new successful-run record.
+        result = subprocess.run(command, cwd=self.output, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads(history_path.read_text()), record)
+        self.assertEqual(len(list((run / "logs").glob("*/RunRecord.json"))), 1)
 
     def test_simulation_eigenvalues_and_heating(self):
         for model in ("one-way", "two-way"):

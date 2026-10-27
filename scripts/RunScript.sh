@@ -8,6 +8,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd -- "$script_dir/.." && pwd)"
+launch_command=("$BASH" "$script_dir/RunScript.sh" "$@")
+started_at="$(TZ=Asia/Taipei date --iso-8601=seconds)"
 python_bin="${PYTHON:-python}"
 
 # These defaults can also be overridden with command-line options below.
@@ -60,6 +62,7 @@ Unspecified model settings use the current Python classes. Use Bash, not sh.
 Selected stages run sequentially and the pipeline stops on the first failure.
 --output-dir and --run-dir are mutually exclusive.
 All stages share the resolved run directory; logs are saved in its logs/TIMESTAMP/.
+Successful runs save logs/TIMESTAMP/RunRecord.json and append to the parent's RunHistory.jsonl.
 HELP
 }
 
@@ -208,4 +211,6 @@ if "$run_simulation"; then run_stage simulation Simulation.py "${common_args[@]}
 if "$run_analysis"; then run_stage eigen_analysis EigenAnalysis.py "${common_args[@]}"; fi
 if "$run_reconstruction"; then run_stage reconstruction Reconstruct.py "${reconstruction_args[@]}"; fi
 if "$run_plot"; then run_stage plot Plot_Eigen.py "$output_dir"; fi
+"$python_bin" -u "$script_dir/RunRecord.py" --output-dir "$output_dir" \
+    --started-at "$started_at" --log-directory "$log_dir" -- "${launch_command[@]}"
 printf '\nPipeline completed. Results: %s\n' "$output_dir"

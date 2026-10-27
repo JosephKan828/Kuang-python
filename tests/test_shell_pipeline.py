@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,8 @@ class ShellPipelineTests(unittest.TestCase):
             "import json, os, sys\n"
             "from pathlib import Path\n"
             "script = Path(sys.argv[2]).name\n"
+            "if script == 'RunRecord.py':\n"
+            "    os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
             "with open(os.environ['PIPELINE_TEST_CALLS'], 'a') as file:\n"
             "    file.write(json.dumps([script, *sys.argv[3:]]) + '\\n')\n"
             "print('stage output: ' + script, flush=True)\n"
@@ -63,6 +66,18 @@ class ShellPipelineTests(unittest.TestCase):
         self.assertEqual(len(logs), 3)
         for log in logs:
             self.assertIn("stage output:", log.read_text())
+        record_path = next((run / "logs").glob("*/RunRecord.json"))
+        record = json.loads(record_path.read_text())
+        self.assertEqual(record["run_id"], run.name)
+        self.assertEqual(record["output_directory"], str(run))
+        self.assertEqual(record["working_directory"], str(self.root))
+        self.assertEqual(record["status"], "completed")
+        self.assertTrue(record["started_at"].endswith("+08:00"))
+        self.assertTrue(record["completed_at"].endswith("+08:00"))
+        self.assertIn(str(self.python), record["argv"])
+        self.assertIn(str(self.output), record["argv"])
+        self.assertEqual(json.loads((self.output / "RunHistory.jsonl").read_text()), record)
+        self.assertIn(str(record_path), result.stdout)
 
     def test_failure_stops_later_stages_and_preserves_exit_code(self):
         self.env["PIPELINE_TEST_FAIL"] = "EigenAnalysis.py"
@@ -73,6 +88,8 @@ class ShellPipelineTests(unittest.TestCase):
         run = Path(self.recorded_calls()[0][-1])
         log = next((run / "logs").glob("*/eigen_analysis.log"))
         self.assertIn("deliberate stage failure", log.read_text())
+        self.assertFalse((self.output / "RunHistory.jsonl").exists())
+        self.assertEqual(list((run / "logs").glob("*/RunRecord.json")), [])
 
     def test_reconstruction_only_uses_existing_output_and_worker_override(self):
         self.output.mkdir()
@@ -105,6 +122,8 @@ class ShellPipelineTests(unittest.TestCase):
             self.assertTrue((run / "logs").is_dir())
         self.assertEqual(existing.read_bytes(), b"previous run")
         self.assertFalse((self.output / "logs").exists())
+        history = [json.loads(line) for line in (self.output / "RunHistory.jsonl").read_text().splitlines()]
+        self.assertEqual([item["output_directory"] for item in history], [str(run) for run in runs])
 
     def test_existing_run_directory_must_exist(self):
         result = self.run_pipeline(reuse=True)
@@ -112,6 +131,24 @@ class ShellPipelineTests(unittest.TestCase):
         self.assertIn("Run directory does not exist", result.stderr)
         self.assertFalse(self.output.exists())
         self.assertFalse(self.calls.exists())
+
+    def test_reused_run_keeps_distinct_completion_records_and_literal_arguments(self):
+        self.output = self.root / "run 'quoted' $literal"
+        result = self.run_pipeline("--seed", "42")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parent = self.output
+        self.output = Path(self.recorded_calls()[0][-1])
+        result = self.run_pipeline("--seed", "43", reuse=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        history = [json.loads(line) for line in (parent / "RunHistory.jsonl").read_text().splitlines()]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["run_id"], history[1]["run_id"])
+        self.assertNotEqual(history[0]["invocation_id"], history[1]["invocation_id"])
+        for record in history:
+            self.assertEqual(shlex.split(record["command"]), record["argv"])
+            self.assertEqual(json.loads(Path(record["record_path"]).read_text()), record)
+        self.assertIn("--run-dir", history[1]["argv"])
+        self.assertEqual(history[1]["argv"][-2:], ["--seed", "43"])
 
     def test_invalid_options_and_missing_inputs(self):
         for arguments in (("--seed",), ("--reconstruct", "--x-block-size", "0"),

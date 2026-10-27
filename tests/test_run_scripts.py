@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,6 +24,7 @@ from ModelCalculation.Operators import Operator
 from Simulation import main as simulate
 from EigenAnalysis import main as eigen_analysis
 from Reconstruct import main as reconstruct
+from API import ModelConfig, run_model
 
 
 class RunScriptTests(unittest.TestCase):
@@ -38,30 +40,80 @@ class RunScriptTests(unittest.TestCase):
         self.domain.dz = self.domain.Zmax / 2
         self.domain.nondim_k = [0.5, 1.0]
 
-    def test_python_launcher_records_only_successful_completion(self):
-        script = Path(__file__).resolve().parents[1] / "scripts" / "RunScript.py"
-        run = self.output / "completed run"
-        command = [sys.executable, str(script), "--output-dir", str(run),
-                   "--members", "1", "--tmax", "0.25", "--dt", "0.25",
-                   "--dx", "40000000", "--dz", "7000", "--zonal-wavenumbers", "1",
-                   "--seed", "7", "--no-plot"]
-        result = subprocess.run(command, cwd=self.output, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        history_path = self.output / "RunHistory.jsonl"
-        record = json.loads(history_path.read_text())
-        self.assertEqual(record["argv"], command)
-        self.assertEqual(record["output_directory"], str(run))
-        self.assertEqual(record["run_id"], run.name)
-        self.assertEqual(record["working_directory"], str(self.output))
-        self.assertTrue(record["completed_at"].endswith("+08:00"))
-        self.assertEqual(json.loads(Path(record["record_path"]).read_text()), record)
-        self.assertIn(str(history_path), result.stdout)
-        self.assertIn(f"Model run completed. Results: {run}", result.stdout)
-        # An output collision must not publish a new successful-run record.
-        result = subprocess.run(command, cwd=self.output, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(json.loads(history_path.read_text()), record)
-        self.assertEqual(len(list((run / "logs").glob("*/RunRecord.json"))), 1)
+    def test_shell_pipeline_matches_api_and_records_before_email(self):
+        script = Path(__file__).resolve().parents[1] / "scripts" / "RunScript.sh"
+        reference = self.output / "api-reference"
+        run_model(ModelConfig(domain=self.domain, seed=7), reference,
+                  reconstruct=True, reconstruction_workers=1)
+        # Run real stages in subprocesses, replacing only the SMTP connection.
+        # The wrapper asserts that outputs and the record exist before mailing.
+        python = self.output / "python with mocked SMTP"
+        python.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, runpy, smtplib, sys\n"
+            "from pathlib import Path\n"
+            "from unittest.mock import patch\n"
+            "script = Path(sys.argv[2])\n"
+            "sys.argv = sys.argv[2:]\n"
+            "sys.path.insert(0, str(script.parent))\n"
+            "if script.name == 'EmailNotification.py':\n"
+            "    def submit(message, **kwargs):\n"
+            "        record = json.loads(Path(sys.argv[1]).read_text())\n"
+            "        output = Path(record['output_directory'])\n"
+            "        assert record['status'] == 'completed'\n"
+            "        assert (output.parent / 'RunHistory.jsonl').is_file()\n"
+            "        for name in ('State.h5', 'EigenAnalysis.h5', 'GalerkinState.h5', 'Figures/EigenAnalysis.png'):\n"
+            "            assert (output / name).is_file(), name\n"
+            "        Path(os.environ['TEST_EMAIL_CAPTURE']).write_text(message.as_string())\n"
+            "        if os.environ['TEST_EMAIL_RESULT'] == 'quota':\n"
+            "            raise smtplib.SMTPDataError(550, b'5.4.5 Daily user sending limit exceeded')\n"
+            "        return {}\n"
+            "    with patch('smtplib.SMTP_SSL') as smtp:\n"
+            "        smtp.return_value.send_message.side_effect = submit\n"
+            "        runpy.run_path(str(script), run_name='__main__')\n"
+            "else:\n"
+            "    runpy.run_path(str(script), run_name='__main__')\n"
+        )
+        python.chmod(0o755)
+        for outcome in ("accepted", "quota"):
+            with self.subTest(email=outcome):
+                parent = self.output / outcome
+                command = ["bash", str(script), "--python", str(python), "--output-dir", str(parent),
+                           "--members", str(self.domain.Ens), "--tmax", "1", "--dt", "0.25",
+                           "--dx", str(self.domain.dx), "--dz", str(self.domain.dz),
+                           "--zonal-wavenumbers", "0.5", "1", "--seed", "7", "--plot",
+                           "--reconstruction-workers", "1", "--notify-email", "recipient@example.com"]
+                capture = self.output / f"{outcome}.eml"
+                env = dict(os.environ, KUANG_NOTIFY_EMAIL="", KUANG_SMTP_HOST="smtp.example.com",
+                           KUANG_SMTP_USER="sender@example.com", KUANG_SMTP_PASSWORD="test-secret",
+                           KUANG_SMTP_SECURITY="ssl", KUANG_SMTP_PORT="465",
+                           TEST_EMAIL_CAPTURE=str(capture), TEST_EMAIL_RESULT=outcome,
+                           MPLCONFIGDIR=str(self.output / "matplotlib"))
+                result = subprocess.run(command, cwd=self.output, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                record = json.loads((parent / "RunHistory.jsonl").read_text())
+                run = Path(record["output_directory"])
+                self.assertEqual(record["argv"][1:], command[1:])
+                self.assertEqual(record["run_id"], run.name)
+                self.assertEqual(record["working_directory"], str(self.output))
+                log_dir = Path(record["record_path"]).parent
+                self.assertEqual(json.loads((log_dir / "RunRecord.json").read_text()), record)
+                for name in ("simulation", "eigen_analysis", "reconstruction", "plot", "run_record", "email"):
+                    self.assertTrue((log_dir / f"{name}.log").is_file())
+                status = json.loads((log_dir / "EmailNotification.json").read_text())
+                self.assertEqual(status["status"], "accepted_by_smtp" if outcome == "accepted" else "failed")
+                if outcome == "quota":
+                    self.assertEqual(status["failure_reason"], "sending_limit")
+                self.assertIn(str(run), capture.read_text())
+                self.assertNotIn("test-secret", capture.read_text() + json.dumps(record))
+                self.assertIn(f"Pipeline completed. Results: {run}", result.stdout)
+                self.assertEqual(json.loads((reference / "Config.json").read_text()),
+                                 json.loads((run / "Config.json").read_text()))
+                for filename in ("Metadata.h5", "State.h5", "EigenAnalysis.h5", "FourierState.h5", "GalerkinState.h5"):
+                    with h5py.File(reference / filename) as expected, h5py.File(run / filename) as actual:
+                        self.assertEqual(set(actual), set(expected))
+                        for name in actual:
+                            assert_array_equal(actual[name][()], expected[name][()])
 
     def test_simulation_eigenvalues_and_heating(self):
         for model in ("one-way", "two-way"):

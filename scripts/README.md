@@ -93,10 +93,12 @@ conda activate atmos-env
 bash scripts/RunScript.sh --model two-way --rad-scaling 1.0 --seed 42
 ```
 
-The current shell defaults run simulation, eigen-analysis, and reconstruction,
-with plotting disabled. Reconstruction uses four worker processes by default;
+The shell pipeline runs simulation → eigen-analysis → reconstruction → run-ID
+recording → email notification (when configured), with plotting disabled by
+default. `--plot` adds figures before recording the completed run. Reconstruction
+uses four worker processes by default;
 set `--reconstruction-workers 1` for serial execution. Other controls are `--skip-simulation`,
-`--skip-analysis`, and `--no-plot`. Run `bash scripts/RunScript.sh --help` for all
+`--skip-analysis`, `--skip-reconstruction`, and `--no-plot`. Run `bash scripts/RunScript.sh --help` for all
 options. Use Bash rather than `sh`, because the launcher uses argument arrays.
 
 The shell pipeline forwards the same model arguments and output directory to
@@ -125,7 +127,9 @@ bash scripts/RunScript.sh --skip-simulation --skip-analysis --no-plot \
   --reconstruct --run-dir output/shell_run/TIMESTAMP --overwrite
 ```
 
-The pipeline stops when a stage fails and preserves its exit status. Each stage
+The pipeline stops when a numerical or recording stage fails and preserves its
+exit status. Email failure prints a warning without invalidating completed
+results. Each stage
 has a log, including its exact command, under the resolved run directory's
 `logs/TIMESTAMP/` folder.
 Required existing inputs and output collisions are checked before stages start.
@@ -136,7 +140,7 @@ that option, the parent is `output/pipeline/` under the project root. Timestamps
 use Asia/Taipei and include fractional seconds and the process ID to separate
 closely spaced runs. The resolved directory is printed when the pipeline starts.
 
-After all requested stages succeed, both `RunScript.sh` and `RunScript.py` save
+After all requested numerical and plotting stages succeed, `RunScript.sh` saves
 a completion record under `RUN_DIRECTORY/logs/INVOCATION_ID/RunRecord.json` and
 append the same record to `RunHistory.jsonl` in the run directory's parent.
 The console prints both record locations and the completed output directory.
@@ -156,11 +160,81 @@ interpreting relative command arguments. Identical random seeds alone do not
 make results reproducible if the source or configuration changes.
 
 `RunHistory.jsonl` contains one JSON object per successful launcher invocation.
-Failed pipelines do not receive a completion entry. Processing an existing run
+Failed numerical or plotting stages do not receive a completion entry. Processing an existing run
 with `--run-dir` retains its run ID and adds a separate invocation record;
-previous entries are preserved. These automatic records apply to the two
-launchers; direct API calls and individual stage scripts retain their existing
+previous entries are preserved. These automatic records apply to the shell
+launcher; direct API calls and individual stage scripts retain their existing
 output behavior.
+
+### Completion email
+
+The shell launcher submits an email as a separate final stage after the
+completion record is saved. `scripts/EmailNotification.py` uses Python's standard
+library; no additional package or ChatGPT connector is required. Enable it by
+exporting `KUANG_NOTIFY_EMAIL` in the terminal that starts the run, or passing
+`--notify-email ADDRESS`. If neither is provided, no email is attempted.
+`--no-email` disables it for one invocation. The recording and mail stages have
+separate `run_record.log` and `email.log` files beside the completion record.
+
+For a Gmail **sending** account, from the project root:
+
+```bash
+source config/EmailNotification.env.example
+export KUANG_SMTP_USER='YOUR_SENDING_ACCOUNT@gmail.com'
+read -r -s -p 'SMTP app password: ' KUANG_SMTP_PASSWORD
+export KUANG_SMTP_PASSWORD
+printf '\n'
+bash scripts/RunScript.sh --seed 42
+```
+
+The example sets the recipient to `josephyck0828@gmail.com`. The sending account
+can be different. Gmail requires an eligible account with 2-Step Verification
+and an [app password](https://support.google.com/mail/answer/185833?hl=en) for
+this password-based SMTP method. Enter the app password at the terminal prompt;
+do not put it in the command, source files, or run configuration. Gmail's
+[SMTP settings](https://developers.google.com/workspace/gmail/imap/imap-smtp)
+use `smtp.gmail.com` with port 465/SSL or port 587/STARTTLS.
+
+For another provider, replace `KUANG_SMTP_HOST`, `KUANG_SMTP_PORT`,
+`KUANG_SMTP_SECURITY` (`ssl` or `starttls`), `KUANG_SMTP_USER`, and
+`KUANG_SMTP_PASSWORD`. `KUANG_SMTP_FROM` optionally overrides the sender address;
+otherwise the username is used. Authentication occurs over verified TLS.
+These variables must be exported in the process environment of the launcher,
+including when using a batch scheduler or a new terminal session.
+
+Emails contain the run ID, output path, timestamps, working directory, and launch
+command. They include no simulation-data attachments. SMTP acceptance or failure
+is recorded in `EmailNotification.json` beside `RunRecord.json`. Mail failures
+print a warning and preserve the completed simulation's successful exit status.
+SMTP acceptance does not guarantee delivery to the recipient's inbox.
+
+There is one notification attempt per successful launcher invocation, regardless
+of ensemble size or wavenumber count, and no automatic retry loop. Provider
+limits apply to the sending account, including mail sent outside this program.
+For personal Gmail, Google documents sending-limit errors above 500 messages
+per day, with sending generally restored within 1–24 hours; other account types
+have different limits. See [Gmail sending limits](https://support.google.com/mail/answer/22839?hl=en).
+This program cannot determine the account's remaining quota and has no global
+rate limiter across simultaneous runs.
+
+On failure, `EmailNotification.json` includes a `failure_reason` and, when
+available, `smtp_code` and `enhanced_status`. These distinguish a sending limit
+(for example, Gmail `550 / 5.4.5`), rate limiting, temporary rejection, and
+authentication failure without saving raw server replies or credentials. Wait
+for the provider's restriction to clear before manually retrying. A connection
+loss after transmission can leave delivery uncertain, so check the inbox before
+retrying that case. Failure during logout alone does not undo SMTP acceptance.
+
+To send or retry a notification for an existing completed run, after setting
+the same environment variables:
+
+```bash
+python scripts/EmailNotification.py /path/to/logs/INVOCATION_ID/RunRecord.json
+```
+
+This command sends another email and replaces that invocation's email-status
+file. Set `KUANG_NOTIFY_EMAIL=''` to disable notifications. Failed simulations
+do not send a success email.
 
 To process an existing run, use `--run-dir PATH/TIMESTAMP` instead; replace
 `TIMESTAMP` in these examples with the actual folder name. This uses the directory
@@ -174,30 +248,27 @@ radiation, and wavenumber options: eigen-analysis uses the current Python
 configuration. Reconstruction and plotting read the saved files. The pipeline
 does not automatically restore physical parameters from an older run.
 
-The Python launcher remains available for running the same workflow through the
-API in one process.
+`RunScript.sh` is the workflow launcher. The former `RunScript.py` has been
+removed; Python programs and notebooks can still use `API.run_model` directly.
+For identical settings and seed, the launchers used the same numerical routines
+and produced identical simulation, eigen-analysis, and reconstruction arrays.
+Their defaults differed: the shell enables reconstruction and disables plotting;
+the former Python launcher did the reverse. Use `--skip-reconstruction --plot`
+to request that combination in the shell. The shell's `--output-dir` always
+names a parent for a timestamped child, while the former Python launcher treated
+an explicit output directory as the exact run directory.
 
-From the project root:
-
-```bash
-conda activate atmos-env
-python scripts/RunScript.py --model two-way --rad-scaling 1.0 --seed 42
-```
-
-This runs the ensemble, writes eigen-analysis, and saves a two-panel eigenmode
-figure. Defaults come from `src/Domain.py` and `src/Params.py`: 200 members, 61
-wavenumbers, 40 days, and a 0.25-day interval. A timestamped directory is created
-under `output/two-way/Rad(1)/`. Timestamps use Asia/Taipei.
-
-For a named directory and smaller run:
+Model defaults come from `src/Configuration/Domain.py` and
+`src/Configuration/Params.py`: 200 members, 61 wavenumbers, 40 days, and a
+0.25-day interval. For a smaller run with figures:
 
 ```bash
-python scripts/RunScript.py --model two-way --rad-scaling 1.0 \
+bash scripts/RunScript.sh --model two-way --rad-scaling 1.0 \
   --members 4 --tmax 2 --dt 0.25 --zonal-wavenumbers 1 5 10 \
-  --seed 42 --output-dir output/small_run
+  --seed 42 --plot --output-dir output/small_run
 ```
 
-`--model one-way` selects the four-component model. `--no-plot` skips figures.
+`--model one-way` selects the four-component model. `--plot` enables figures.
 Existing numerical output files are protected; use `--overwrite` to replace them.
 A failed stage stops the workflow instead of continuing with incomplete results.
 
@@ -211,10 +282,12 @@ parameter values, domain settings, radiation scaling, and random seed.
 ## Compare radiation factors
 
 ```bash
-python scripts/RunScript.py --rad-scaling 0.0 --seed 42 --output-dir output/rad0
-python scripts/RunScript.py --rad-scaling 1.0 --seed 42 --output-dir output/rad1
-python scripts/Plot_Eigen.py output/rad0 output/rad1 --figure-dir output/comparison
+bash scripts/RunScript.sh --rad-scaling 0.0 --seed 42 --output-dir output/rad0
+bash scripts/RunScript.sh --rad-scaling 1.0 --seed 42 --output-dir output/rad1
+python scripts/Plot_Eigen.py output/rad0/TIMESTAMP0 output/rad1/TIMESTAMP1 --figure-dir output/comparison
 ```
+
+Replace `TIMESTAMP0` and `TIMESTAMP1` with the recorded run IDs.
 
 The comparison uses solid black for the lower scaling and dashed black for the
 higher scaling. Growth rate is on the left and corresponding phase speed on the
@@ -232,8 +305,8 @@ python scripts/Reconstruct.py output/run1 --x-block-size 64
 ```
 
 For separate simulation and eigen-analysis calls, supply the same model,
-radiation scaling, and wavenumber settings. `RunScript.py` shares one configuration
-automatically. `Reconstruct.py` reads the saved metadata rather than the live
+radiation scaling, and wavenumber settings. `RunScript.sh` forwards the same
+arguments to both stages automatically. `Reconstruct.py` reads the saved metadata rather than the live
 configuration, so later source edits do not change its grids or background.
 
 ## Reconstruction
@@ -268,8 +341,8 @@ bash scripts/RunScript.sh --skip-simulation --skip-analysis \
 ```
 
 These are alternative commands; add `--overwrite` when replacing existing
-reconstruction files. Use `--workers 1` for a serial comparison. The Python
-launcher also accepts `--reconstruction-workers`; the API accepts
+reconstruction files. Use `--workers 1` for a serial comparison. The shell
+launcher accepts `--reconstruction-workers`; the API accepts
 `reconstruct_fields(path, workers=4)` and
 `run_model(config, path, reconstruct=True, reconstruction_workers=4)`.
 When calling the parallel API from a Python script, place the call inside
@@ -289,10 +362,10 @@ parts are removed after successful replacement. The two combined files are
 replaced individually, so avoid reading them during replacement. A run with no
 complete daily groups writes empty ordinary datasets without starting workers.
 
-Add `--reconstruct` to the launcher for the full workflow. A small complete example:
+Reconstruction is enabled by default in the shell launcher. A small complete example:
 
 ```bash
-python scripts/RunScript.py --members 2 --tmax 2 --dt 0.25 \
+bash scripts/RunScript.sh --members 2 --tmax 2 --dt 0.25 \
   --zonal-wavenumbers 1 5 --dx 10000000 --dz 7000 --reconstruct \
   --seed 42 --output-dir output/small_reconstruction
 ```

@@ -11,6 +11,7 @@ project_root="$(cd -- "$script_dir/.." && pwd)"
 launch_command=("$BASH" "$script_dir/RunScript.sh" "$@")
 started_at="$(TZ=Asia/Taipei date --iso-8601=seconds)"
 python_bin="${PYTHON:-python}"
+notification_email="${KUANG_NOTIFY_EMAIL:-}"
 
 # These defaults can also be overridden with command-line options below.
 model_args=(--model two-way --rad-scaling 1.0)
@@ -32,13 +33,17 @@ usage() {
     cat <<'HELP'
 Usage: bash scripts/RunScript.sh [options]
 
-Default workflow: simulation -> eigen-analysis -> reconstruction
+Default workflow: simulation -> eigen-analysis -> reconstruction -> run record -> optional email
 
 Workflow options:
   --skip-simulation          Skip the simulation stage
   --skip-analysis            Skip the eigen-analysis stage
   --reconstruct              Enable Fourier/Galerkin reconstruction
+  --skip-reconstruction      Skip Fourier/Galerkin reconstruction
+  --plot                     Generate eigen-analysis figures (default: off)
   --no-plot                  Skip plotting
+  --notify-email ADDRESS     Send completion email to ADDRESS (default: $KUANG_NOTIFY_EMAIL)
+  --no-email                 Disable email for this invocation
   --x-block-size N           Reconstruction spatial block size (default: 64)
   --reconstruction-workers N Reconstruction processes (default: 4; 1 for serial)
   --output-dir PATH          Parent directory; create PATH/TIMESTAMP (default: output/pipeline/)
@@ -63,6 +68,7 @@ Selected stages run sequentially and the pipeline stops on the first failure.
 --output-dir and --run-dir are mutually exclusive.
 All stages share the resolved run directory; logs are saved in its logs/TIMESTAMP/.
 Successful runs save logs/TIMESTAMP/RunRecord.json and append to the parent's RunHistory.jsonl.
+Email uses exported KUANG_SMTP_* settings; email failures do not invalidate results.
 HELP
 }
 
@@ -81,7 +87,15 @@ while [[ $# -gt 0 ]]; do
         --skip-simulation) run_simulation=false; shift ;;
         --skip-analysis) run_analysis=false; shift ;;
         --reconstruct) run_reconstruction=true; shift ;;
+        --skip-reconstruction) run_reconstruction=false; shift ;;
+        --plot) run_plot=true; shift ;;
         --no-plot) run_plot=false; shift ;;
+        --no-email) notification_email=""; shift ;;
+        --notify-email)
+            require_value "$@"
+            notification_email="$2"
+            shift 2
+            ;;
         --overwrite) overwrite=true; shift ;;
         --python)
             require_value "$@"
@@ -125,6 +139,7 @@ while [[ $# -gt 0 ]]; do
         *) fail "Unknown option: $1 (use --help)." ;;
     esac
 done
+export KUANG_NOTIFY_EMAIL="$notification_email"
 
 # ====================================================
 # Check the selected workflow
@@ -202,7 +217,7 @@ run_stage() {
     else
         local status=$?
         printf 'Stage %s failed (exit %s). Log: %s\n' "$label" "$status" "$log_file" >&2
-        exit "$status"
+        return "$status"
     fi
 }
 
@@ -211,6 +226,15 @@ if "$run_simulation"; then run_stage simulation Simulation.py "${common_args[@]}
 if "$run_analysis"; then run_stage eigen_analysis EigenAnalysis.py "${common_args[@]}"; fi
 if "$run_reconstruction"; then run_stage reconstruction Reconstruct.py "${reconstruction_args[@]}"; fi
 if "$run_plot"; then run_stage plot Plot_Eigen.py "$output_dir"; fi
-"$python_bin" -u "$script_dir/RunRecord.py" --output-dir "$output_dir" \
+run_stage run_record RunRecord.py --output-dir "$output_dir" \
     --started-at "$started_at" --log-directory "$log_dir" -- "${launch_command[@]}"
+if [[ -n "$notification_email" ]]; then
+    if run_stage email EmailNotification.py "$log_dir/RunRecord.json"; then
+        :
+    else
+        printf 'Email notification failed; completed results and run record are preserved.\n' >&2
+    fi
+else
+    printf 'Email notification disabled; set KUANG_NOTIFY_EMAIL or use --notify-email.\n'
+fi
 printf '\nPipeline completed. Results: %s\n' "$output_dir"

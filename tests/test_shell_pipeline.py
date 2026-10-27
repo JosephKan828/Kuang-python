@@ -26,17 +26,17 @@ class ShellPipelineTests(unittest.TestCase):
             "import json, os, sys\n"
             "from pathlib import Path\n"
             "script = Path(sys.argv[2]).name\n"
-            "if script == 'RunRecord.py':\n"
-            "    os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
             "with open(os.environ['PIPELINE_TEST_CALLS'], 'a') as file:\n"
             "    file.write(json.dumps([script, *sys.argv[3:]]) + '\\n')\n"
             "print('stage output: ' + script, flush=True)\n"
             "if script == os.environ.get('PIPELINE_TEST_FAIL'):\n"
             "    print('deliberate stage failure', file=sys.stderr)\n"
             "    sys.exit(7)\n"
+            "if script in ('RunRecord.py', 'EmailNotification.py'):\n"
+            "    os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
         )
         self.python.chmod(0o755)
-        self.env = dict(os.environ, PIPELINE_TEST_CALLS=str(self.calls))
+        self.env = dict(os.environ, PIPELINE_TEST_CALLS=str(self.calls), KUANG_NOTIFY_EMAIL="")
 
     def run_pipeline(self, *args, reuse=False):
         return subprocess.run(
@@ -45,8 +45,10 @@ class ShellPipelineTests(unittest.TestCase):
             cwd=self.root, env=self.env, text=True, capture_output=True,
         )
 
-    def recorded_calls(self):
-        return [json.loads(line) for line in self.calls.read_text().splitlines()]
+    def recorded_calls(self, include_completion=False):
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        return calls if include_completion else [call for call in calls
+                                                if call[0] not in ("RunRecord.py", "EmailNotification.py")]
 
     def test_full_stage_order_and_shared_arguments(self):
         result = self.run_pipeline("--members", "2", "--seed", "42", "--rad-scaling", "0.0",
@@ -63,7 +65,7 @@ class ShellPipelineTests(unittest.TestCase):
         self.assertEqual(calls[0][-2:], ["--output-dir", str(run)])
         self.assertEqual(calls[2][1:], [str(run), "--x-block-size", "64", "--workers", "4"])
         logs = list((run / "logs").glob("*/*.log"))
-        self.assertEqual(len(logs), 3)
+        self.assertEqual(len(logs), 4)
         for log in logs:
             self.assertIn("stage output:", log.read_text())
         record_path = next((run / "logs").glob("*/RunRecord.json"))
@@ -78,6 +80,34 @@ class ShellPipelineTests(unittest.TestCase):
         self.assertIn(str(self.output), record["argv"])
         self.assertEqual(json.loads((self.output / "RunHistory.jsonl").read_text()), record)
         self.assertIn(str(record_path), result.stdout)
+        self.assertEqual([call[0] for call in self.recorded_calls(include_completion=True)],
+                         ["Simulation.py", "EigenAnalysis.py", "Reconstruct.py", "RunRecord.py"])
+
+    def test_record_failure_prevents_email(self):
+        self.env["PIPELINE_TEST_FAIL"] = "RunRecord.py"
+        result = self.run_pipeline("--notify-email", "recipient@example.com")
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(self.recorded_calls(include_completion=True)[-1][0], "RunRecord.py")
+        self.assertFalse((self.output / "RunHistory.jsonl").exists())
+
+    def test_email_configuration_failure_preserves_pipeline_success(self):
+        self.env["KUANG_SMTP_PASSWORD"] = ""
+        result = self.run_pipeline("--notify-email", "recipient@example.com")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[0] for call in self.recorded_calls(include_completion=True)],
+                         ["Simulation.py", "EigenAnalysis.py", "Reconstruct.py", "RunRecord.py", "EmailNotification.py"])
+        record = json.loads((self.output / "RunHistory.jsonl").read_text())
+        log_dir = Path(record["record_path"]).parent
+        self.assertEqual(json.loads((log_dir / "EmailNotification.json").read_text())["failure_reason"], "configuration_error")
+        self.assertIn("results are saved", (log_dir / "email.log").read_text())
+        self.assertIn("Pipeline completed", result.stdout)
+
+    def test_optional_plot_and_skip_reconstruction_and_email(self):
+        self.env["KUANG_NOTIFY_EMAIL"] = "recipient@example.com"
+        result = self.run_pipeline("--skip-reconstruction", "--plot", "--no-email")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[0] for call in self.recorded_calls(include_completion=True)],
+                         ["Simulation.py", "EigenAnalysis.py", "Plot_Eigen.py", "RunRecord.py"])
 
     def test_failure_stops_later_stages_and_preserves_exit_code(self):
         self.env["PIPELINE_TEST_FAIL"] = "EigenAnalysis.py"
@@ -154,6 +184,8 @@ class ShellPipelineTests(unittest.TestCase):
         for arguments in (("--seed",), ("--reconstruct", "--x-block-size", "0"),
                           ("--reconstruction-workers", "0"), ("--reconstruction-workers", "-1"),
                           ("--reconstruction-workers", "1.5"), ("--reconstruction-workers",),
+                          ("--notify-email",),
+                          ("--skip-simulation", "--skip-analysis", "--skip-reconstruction"),
                           ("--skip-simulation", "--skip-analysis"),
                           ("--skip-simulation", "--skip-analysis", "--no-plot"),
                           ("--unknown-option",)):

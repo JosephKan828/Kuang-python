@@ -177,3 +177,11 @@ class Radiation:
     @property
     def alpha22(self) -> float:
         return self.alpha22_LW + self.alpha22_SW
+
+    @property
+    def beta1(self) -> float:
+        return self.beta1_LW + self.beta1_SW
+
+    @property
+    def beta2(self) -> float:
+        return self.beta2_LW + self.beta2_SW

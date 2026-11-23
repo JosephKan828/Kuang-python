@@ -32,13 +32,15 @@ class RadiationOperator(Dynamics, Convection, Radiation):
 
     def _two_way_radiation(self, k: float) -> np.ndarray:
 
+        tauB: float = self.tau * self.B()
+
         operator: np.ndarray = np.array([
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             [self.alpha11, self.alpha12, 0.0, 0.0, 0.0, 0.0],
             [self.alpha21, self.alpha22, 0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [-self.f*self.alpha11-(1-self.f)*self.alpha21, -self.f*self.alpha12-(1-self.f)*self.alpha22, 0.0, 0.0, 0.0, 0.0]
+            [(-self.f*self.alpha11-(1-self.f)*self.alpha21)/tauB, (-self.f*self.alpha12-(1-self.f)*self.alpha22)/tauB, 0.0, 0.0, 0.0, 0.0]
         ])
 
         return operator

@@ -143,6 +143,9 @@ class Radiation:
         alpha11_SW, alpha21_SW: SW heating correlated with w1
         alpha12_SW, alpha22_SW: SW heating correlated with w2 
         beta1_SW, beta2_SW: SW heating correlated with q
+
+        alpha11, alpha12, alpha21, alpha22 are computed properties
+        combining their corresponding LW and SW coefficients.
     """
 
     alpha11_LW: float = 0.0335
@@ -158,3 +161,19 @@ class Radiation:
     alpha22_SW: float = 0.0378
     beta1_SW: float = 0.767915
     beta2_SW: float = -1.2814
+
+    @property
+    def alpha11(self) -> float:
+        return self.alpha11_LW + self.alpha11_SW
+
+    @property
+    def alpha12(self) -> float:
+        return self.alpha12_LW + self.alpha12_SW
+
+    @property
+    def alpha21(self) -> float:
+        return self.alpha21_LW + self.alpha21_SW
+
+    @property
+    def alpha22(self) -> float:
+        return self.alpha22_LW + self.alpha22_SW

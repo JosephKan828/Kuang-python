@@ -19,11 +19,6 @@ class RadiationOperator(Dynamics, Convection, Radiation):
     def __init__(self):
         super().__init__()
 
-        self.alpha11: float = self.alpha11_LW + self.alpha11_SW
-        self.alpha12: float = self.alpha12_LW + self.alpha12_SW
-        self.alpha21: float = self.alpha21_LW + self.alpha21_SW
-        self.alpha22: float = self.alpha22_LW + self.alpha22_SW
-
     def _one_way_radiation(self, k: float) -> np.ndarray:
 
         operator: np.ndarray = np.array([

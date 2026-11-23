@@ -136,19 +136,25 @@ class Radiation:
         ---------------------
         alpha11_LW, alpha21_LW: LW heating correlated with w1
         alpha12_LW, alpha22_LW: LW heating correlated with w2
+        beta1_LW, beta2_LW: LW heating correlated with q
 
         SW parameter
         ---------------------
         alpha11_SW, alpha21_SW: SW heating correlated with w1
         alpha12_SW, alpha22_SW: SW heating correlated with w2 
+        beta1_SW, beta2_SW: SW heating correlated with q
     """
 
     alpha11_LW: float = 0.0335
     alpha21_LW: float = 0.0455
     alpha12_LW: float = -0.0414
     alpha22_LW: float = -0.0291
+    beta1_LW: float = 0.84807
+    beta2_LW: float = 2.5002
 
     alpha11_SW: float = 0.0130
     alpha21_SW: float = -0.0371
     alpha12_SW: float = -0.00508
     alpha22_SW: float = 0.0378
+    beta1_SW: float = 0.767915
+    beta2_SW: float = -1.2814

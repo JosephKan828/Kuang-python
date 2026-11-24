@@ -29,6 +29,9 @@ class ModelConfig:
     model_type: str = "two-way"
     rad_scaling: float = 1.0
     domain: Domain = field(default_factory=Domain)
+    rad_scheme: str = field(default="w", kw_only=True)
+    lw_weight: float = field(default=1.0, kw_only=True)
+    sw_weight: float = field(default=1.0, kw_only=True)
     seed: int | None = None
 
     def __post_init__(self) -> None:
@@ -41,6 +44,8 @@ class ModelConfig:
             This function is to validate the input of model configuration, including:
             - model_type must be 'one-way' or 'two-way'
             - rad_scaling must be finite
+            - rad_scheme must be 'w' or 'q'; one-way supports only 'w'
+            - LW and SW weights must be finite
             - seed must be an integer in [0, 2**32) if specified
             - domain must satisfy the constraints checked by validate_domain
         """
@@ -50,6 +55,14 @@ class ModelConfig:
 
         if not np.isfinite(self.rad_scaling):
             raise ValueError("rad_scaling must be finite.")
+
+        if self.rad_scheme not in ("w", "q"):
+            raise ValueError("rad_scheme must be 'w' or 'q'.")
+        if self.model_type == "one-way" and self.rad_scheme != "w":
+            raise ValueError("The one-way model only supports rad_scheme='w'.")
+        for name in ("lw_weight", "sw_weight"):
+            if not np.isfinite(getattr(self, name)):
+                raise ValueError(f"{name} must be finite.")
 
         if self.seed is not None and (
             isinstance(self.seed, (bool, np.bool_))
@@ -96,6 +109,8 @@ def configuration(operator, domain: Domain, seed: int | None) -> dict:
     groups["Constant"] = {field.name: float(getattr(domain, field.name)) for field in fields(Constant)}
     return {
         "model_type": operator.type, "rad_scaling": float(operator.rad_scaling), "seed": None if seed is None else int(seed),
+        "rad_scheme": operator.rad_scheme,
+        "lw_weight": float(operator.lw_weight), "sw_weight": float(operator.sw_weight),
         "parameters": groups,
         "domain": {name: float(getattr(domain, name)) for name in ("Tmax", "dt", "Xmax", "Zmax", "dx", "dz")},
         "members": int(domain.Ens), "nondim_k": list(map(float, domain.nondim_k)),

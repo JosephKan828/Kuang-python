@@ -15,10 +15,11 @@ from ModelCalculation.Operators import Operator
 # ====================================================
 class InitialCondition(Operator):
 
-    def __init__(self, type: str, rad_scaling: float) -> None:
+    def __init__(self, type: str, rad_scaling: float, *, rad_scheme: str = "w",
+                 lw_weight: float = 1.0, sw_weight: float = 1.0) -> None:
         """scaling factor for initial condition"""
 
-        super().__init__(type)
+        super().__init__(type, rad_scheme=rad_scheme, lw_weight=lw_weight, sw_weight=sw_weight)
         self.scale: np.ndarray | float = 1.0
         self.rad_scaling: float = rad_scaling
 
@@ -44,7 +45,7 @@ class InitialCondition(Operator):
             raise ValueError("members must be a positive integer.")
 
         # introduce the operator
-        op = self.operator(k, self.rad_scaling)
+        op = self.operator(k, self.rad_scaling, rad_scheme=self.rad_scheme)
 
         # solve for the most unstable mode
         eigvals, eigvecs = np.linalg.eig(op)

@@ -62,6 +62,9 @@ def _read_configuration(input_path, x_block_size):
                     variables=variables, vertical={name: bases[name] / density for name in variables},
                     reference_length=metadata.attrs["reference_length_m"],
                     model_type=metadata.attrs["model_type"], rad_scaling=metadata.attrs["rad_scaling"],
+                    rad_scheme=metadata.attrs.get("rad_scheme", "w"),
+                    lw_weight=metadata.attrs.get("lw_weight", 1.0),
+                    sw_weight=metadata.attrs.get("sw_weight", 1.0),
                     block=min(int(x_block_size), x.size))
 
 
@@ -75,6 +78,8 @@ def _write_header(file, config, first, last, galerkin=False):
     file.attrs["averaging"] = "consecutive sample means starting at t=0; incomplete tail omitted"
     file.attrs["model_type"] = config["model_type"]
     file.attrs["rad_scaling"] = config["rad_scaling"]
+    for name in ("rad_scheme", "lw_weight", "sw_weight"):
+        file.attrs[name] = config[name]
 
 
 def _shape(config, count, galerkin=False):

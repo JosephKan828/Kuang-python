@@ -54,7 +54,8 @@ class SimulationRun:
         self.config = deepcopy(config)
         self.config.validate()
         self.stepper = TimeStepper(self.config.model_type, self.config.rad_scaling,
-                                   domain=self.config.domain)
+                                   domain=self.config.domain, rad_scheme=self.config.rad_scheme,
+                                   lw_weight=self.config.lw_weight, sw_weight=self.config.sw_weight)
         self.state_names = (("w1", "w2", "T1", "T2", "q", "L")
                             if self.config.model_type == "two-way" else ("T1", "T2", "q", "L"))
 

@@ -32,7 +32,9 @@ def main(input_paths: list[Path], figure_path: Path | None = None) -> Path:
             selected = file["DominantMode"][:]
             columns = np.arange(selected.size)
             cases.append((file.attrs["rad_scaling"], file.attrs["model_type"], file["nondim_k"][:],
-                          growth[selected, columns], speed[selected, columns]))
+                          growth[selected, columns], speed[selected, columns],
+                          file.attrs.get("rad_scheme", "w"),
+                          file.attrs.get("lw_weight", 1.0), file.attrs.get("sw_weight", 1.0)))
     cases.sort(key=lambda case: case[0])
     if len(cases) == 2 and (cases[0][1] != cases[1][1] or not np.array_equal(cases[0][2], cases[1][2])):
         raise ValueError("Comparison runs must use the same model and wavenumber grid.")
@@ -40,8 +42,9 @@ def main(input_paths: list[Path], figure_path: Path | None = None) -> Path:
     figure_path = Path(input_paths[0]) / "Figures" if figure_path is None else Path(figure_path)
     figure_path.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), constrained_layout=True)
-    for (scaling, model, wavenumbers, growth, speed), style in zip(cases, ("-", "--")):
-        options = dict(color="black", linestyle=style, linewidth=2, label=f"Radiation scaling = {scaling:.1f}")
+    for (scaling, model, wavenumbers, growth, speed, scheme, lw, sw), style in zip(cases, ("-", "--")):
+        options = dict(color="black", linestyle=style, linewidth=2,
+                       label=f"Scheme {scheme}, scaling = {scaling:g}\nLW = {lw:g}, SW = {sw:g}")
         axes[0].plot(wavenumbers, growth, **options)
         axes[1].plot(wavenumbers, speed, **options)
     axes[0].set_title("(a) Growth rate")

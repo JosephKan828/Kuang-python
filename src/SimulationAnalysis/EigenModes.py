@@ -6,7 +6,7 @@
 # Import package
 # ====================================================
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -29,6 +29,9 @@ class EigenResult:
     growth_rates: np.ndarray
     phase_speeds: np.ndarray
     dominant_mode: np.ndarray
+    rad_scheme: str = field(default="w", kw_only=True)
+    lw_weight: float = field(default=1.0, kw_only=True)
+    sw_weight: float = field(default=1.0, kw_only=True)
 
     @property
     def dominant_growth(self) -> np.ndarray:
@@ -44,11 +47,14 @@ def analyze(config: ModelConfig) -> EigenResult:
 
     config.validate()
     model_type, rad_scaling, domain = config.model_type, config.rad_scaling, config.domain
-    operator = Operator(model_type)
+    operator = Operator(model_type, rad_scheme=config.rad_scheme,
+                        lw_weight=config.lw_weight, sw_weight=config.sw_weight)
     k: np.ndarray = np.asarray(domain.k)
     values = []
     for kn in k:
-        eigenvalues = np.linalg.eigvals(operator.operator(float(kn), rad_scaling))
+        eigenvalues = np.linalg.eigvals(
+            operator.operator(float(kn), rad_scaling, rad_scheme=config.rad_scheme)
+        )
         values.append(eigenvalues[np.argsort(-eigenvalues.real, kind="stable")])
     eigenvalues = np.stack(values, axis=1)
     growth_rates = eigenvalues.real
@@ -63,4 +69,6 @@ def analyze(config: ModelConfig) -> EigenResult:
         selected[index] = tied[np.nanargmax(speeds)] if np.any(np.isfinite(speeds)) else tied[0]
 
     return EigenResult(model_type, rad_scaling, k, np.asarray(domain.nondim_k).copy(),
-                       eigenvalues, growth_rates, phase_speeds, selected)
+                       eigenvalues, growth_rates, phase_speeds, selected,
+                       rad_scheme=config.rad_scheme, lw_weight=config.lw_weight,
+                       sw_weight=config.sw_weight)

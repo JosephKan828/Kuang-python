@@ -30,6 +30,10 @@ def add_run_arguments(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument("--model", choices=("one-way", "two-way"), default="two-way")
     parser.add_argument("--rad-scaling", type=float, default=1.0)
+    parser.add_argument("--rad-scheme", choices=("w", "q"), default="w",
+                        help="Circulation (w) or moisture (q) feedback; one-way supports only w")
+    parser.add_argument("--lw-weight", type=float, default=1.0)
+    parser.add_argument("--sw-weight", type=float, default=1.0)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--members", type=int)
     parser.add_argument("--tmax", type=float)
@@ -68,4 +72,6 @@ def output_from_arguments(args: argparse.Namespace) -> Path:
 
 
 def config_from_arguments(args: argparse.Namespace) -> ModelConfig:
-    return ModelConfig(args.model, args.rad_scaling, domain_from_arguments(args), args.seed)
+    return ModelConfig(args.model, args.rad_scaling, domain_from_arguments(args), args.seed,
+                       rad_scheme=args.rad_scheme, lw_weight=args.lw_weight,
+                       sw_weight=args.sw_weight)

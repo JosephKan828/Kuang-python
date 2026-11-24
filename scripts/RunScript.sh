@@ -57,6 +57,9 @@ Workflow options:
 Model options forwarded to both simulation and eigen-analysis:
   --model one-way|two-way    Default: two-way
   --rad-scaling FLOAT        Default: 1.0
+  --rad-scheme w|q           Circulation or moisture feedback (default: w; one-way: w only)
+  --lw-weight FLOAT          Longwave coefficient multiplier (default: 1.0)
+  --sw-weight FLOAT          Shortwave coefficient multiplier (default: 1.0)
   --members N               Ensemble size
   --tmax DAYS                Simulation duration
   --dt DAYS                 Time interval
@@ -125,7 +128,7 @@ while [[ $# -gt 0 ]]; do
             reconstruction_workers="$2"
             shift 2
             ;;
-        --model|--rad-scaling|--members|--tmax|--dt|--dx|--dz|--seed)
+        --model|--rad-scaling|--rad-scheme|--lw-weight|--sw-weight|--members|--tmax|--dt|--dx|--dz|--seed)
             require_value "$@"
             model_args+=("$1" "$2")
             shift 2

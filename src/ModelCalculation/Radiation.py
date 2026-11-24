@@ -16,8 +16,16 @@ from Configuration.Params import Convection, Dynamics, Radiation
 # ====================================================
 
 class RadiationOperator(Dynamics, Convection, Radiation):
-    def __init__(self, *, lw_weight=1.0, sw_weight=1.0):
+    """Radiative feedback with a default regression scheme and separate LW/SW weights."""
+
+    def __init__(self, *, rad_scheme: str = "w", lw_weight: float = 1.0, sw_weight: float = 1.0):
         super().__init__()
+        if rad_scheme not in ("w", "q"):
+            raise ValueError("rad_scheme must be 'w' or 'q'.")
+        for name, value in (("lw_weight", lw_weight), ("sw_weight", sw_weight)):
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite.")
+        self.rad_scheme = rad_scheme
         self.lw_weight = lw_weight
         self.sw_weight = sw_weight
 
@@ -87,7 +95,12 @@ class RadiationOperator(Dynamics, Convection, Radiation):
 
         return operator
 
-    def radiation(self, k: float, two_way: bool = False, rad_scheme: str = "w") -> np.ndarray:
+    def radiation(self, k: float, two_way: bool = False, rad_scheme: str | None = None) -> np.ndarray:
+        rad_scheme = self.rad_scheme if rad_scheme is None else rad_scheme
+        if rad_scheme not in ("w", "q"):
+            raise ValueError("rad_scheme must be 'w' or 'q'.")
+        if not two_way and rad_scheme != "w":
+            raise ValueError("The one-way model only supports rad_scheme='w'.")
         if two_way:
             return self._two_way_radiation(k, rad_scheme)
         else:

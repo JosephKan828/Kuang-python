@@ -43,6 +43,22 @@ API uses angular `domain.k` values for individual wavenumbers. `ModelConfig`
 copies the supplied domain; subsequent adjustments should use `config.domain`.
 Configurations are validated again when calculations start.
 
+Radiation uses `rad_scheme="w"` for circulation-based feedback or `rad_scheme="q"`
+for moisture-based feedback. The one-way model supports only `"w"`; unsupported
+schemes raise `ValueError`. Independent `lw_weight` and `sw_weight` multiply the
+longwave and shortwave coefficients before the overall `rad_scaling` is applied.
+Both weights default to `1.0`, preserving LW + SW. For moisture-based LW-only
+feedback, use:
+
+```python
+config = ModelConfig(domain=domain, seed=42, rad_scheme="q", lw_weight=1.0, sw_weight=0.0)
+```
+
+The same settings control initial eigenmodes, time integration, and eigen-analysis.
+They are recorded in `Config.json` and HDF5 attributes, including reconstructed
+files, and appear in eigen-analysis plot labels. Older output files without these
+attributes are read as scheme `"w"` with both weights equal to `1.0`.
+
 | API function | Return value |
 |---|---|
 | `simulate_wavenumber(config, k, initial_state=None)` | `TimeSeries` with times, states, and state names; accepts an explicit vector or ensemble |
@@ -92,6 +108,9 @@ The Bash pipeline controls the individual Python stages:
 conda activate atmos-env
 bash scripts/RunScript.sh --model two-way --rad-scaling 1.0 --seed 42
 ```
+
+Pass `--rad-scheme q --lw-weight 1 --sw-weight 0` to select moisture-based LW-only
+feedback. These options also work with `Simulation.py` and `EigenAnalysis.py`.
 
 The shell pipeline runs simulation → eigen-analysis → reconstruction → run-ID
 recording → email notification (when configured), with plotting disabled by

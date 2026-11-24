@@ -18,8 +18,10 @@ from API import Domain, ModelConfig, run_simulation
 
 def main(model_type: str, rad_scaling: float, output_path: Path,
          domain: Domain | None = None, seed: int | None = None,
-         overwrite: bool = False) -> Path:
-    config = ModelConfig(model_type, rad_scaling, Domain() if domain is None else domain, seed)
+         overwrite: bool = False, *, rad_scheme: str = "w",
+         lw_weight: float = 1.0, sw_weight: float = 1.0) -> Path:
+    config = ModelConfig(model_type, rad_scaling, Domain() if domain is None else domain, seed,
+                         rad_scheme=rad_scheme, lw_weight=lw_weight, sw_weight=sw_weight)
     return run_simulation(config, output_path, overwrite=overwrite, verbose=True).directory
 
 # ====================================================
@@ -31,4 +33,5 @@ if __name__ == "__main__":
     add_run_arguments(parser)
     args = parser.parse_args()
     main(args.model, args.rad_scaling, output_from_arguments(args),
-         domain_from_arguments(args), args.seed, args.overwrite)
+         domain_from_arguments(args), args.seed, args.overwrite,
+         rad_scheme=args.rad_scheme, lw_weight=args.lw_weight, sw_weight=args.sw_weight)

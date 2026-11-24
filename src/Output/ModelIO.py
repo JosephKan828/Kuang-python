@@ -58,13 +58,17 @@ class SimulationWriter:
                 file.attrs["complete"] = False
                 file.attrs["model_type"] = snapshot["model_type"]
                 file.attrs["rad_scaling"] = snapshot["rad_scaling"]
+                for name in ("rad_scheme", "lw_weight", "sw_weight"):
+                    file.attrs[name] = snapshot[name]
             self.metadata_file.attrs["configuration"] = serialized
             self.metadata_file.attrs["dt"] = snapshot["domain"]["dt"]
             self.metadata_file.attrs["reference_length_m"] = snapshot["reference_length_m"]
             for name in ("GammaT", "g", "cp"):
                 self.metadata_file.attrs[name] = self.metadata.background[name]
-            for name, value in (("RadqScale", 0.0), ("RadtScale", 0.0),
-                                ("RadwScale", snapshot["rad_scaling"]), ("nEnsemble", self.members)):
+            for name, value in (("RadqScale", snapshot["rad_scaling"] if snapshot["rad_scheme"] == "q" else 0.0),
+                                ("RadtScale", 0.0),
+                                ("RadwScale", snapshot["rad_scaling"] if snapshot["rad_scheme"] == "w" else 0.0),
+                                ("nEnsemble", self.members)):
                 self.metadata_file.create_dataset(name, data=value)
             for name, values in self.metadata.coordinates.items():
                 self.metadata_file.create_dataset(name, data=values)
@@ -137,6 +141,8 @@ def save_eigen_analysis(result, output_path: Path, overwrite: bool = False,
     with h5py.File(output_path / "EigenAnalysis.h5", "w") as file:
         file.attrs["model_type"] = model_type
         file.attrs["rad_scaling"] = rad_scaling
+        for name in ("rad_scheme", "lw_weight", "sw_weight"):
+            file.attrs[name] = getattr(result, name)
         file.attrs["reference_length_m"] = 4_320_000.0
         file.attrs["reference_time_s"] = 86_400.0
         file.create_dataset("k", data=k)

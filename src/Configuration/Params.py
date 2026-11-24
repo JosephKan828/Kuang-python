@@ -127,10 +127,9 @@ class Convection:
 class Radiation:
     """
         Parameter used for radiation parameterization
-        Only circulation-based regression coefficient is preserved
-        in current model
-
-        scaling: The magnitude of radiative effect
+        Coefficients describe radiative heating regressed against circulation
+        (alpha) or moisture (beta). RadiationOperator selects the scheme and
+        applies LW/SW weights; Operator applies the overall radiation scaling.
 
         LW parameter
         ---------------------

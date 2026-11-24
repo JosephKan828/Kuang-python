@@ -26,6 +26,8 @@ class TimeStepper(InitialCondition):
         ---------------------
         type       : one-way or two-way system
         rad_scaling: scaling factor for radiative feedback
+        rad_scheme : circulation ('w') or moisture ('q'); one-way supports 'w'
+        lw_weight, sw_weight: independent LW and SW coefficient multipliers
         domain     : domain settings and default ensemble size
         dt, Tmax   : time interval and simulation duration; default to Domain
 
@@ -39,9 +41,13 @@ class TimeStepper(InitialCondition):
         rad_scaling: float = 1.0,
         *,
         domain: Domain | None = None,
+        rad_scheme: str = "w",
+        lw_weight: float = 1.0,
+        sw_weight: float = 1.0,
     ) -> None:
 
-        super().__init__(type, rad_scaling)
+        super().__init__(type, rad_scaling, rad_scheme=rad_scheme,
+                         lw_weight=lw_weight, sw_weight=sw_weight)
 
         self.domain: Domain = Domain() if domain is None else domain
 
@@ -62,7 +68,7 @@ class TimeStepper(InitialCondition):
         if not np.isfinite(interval) or interval < 0:
             raise ValueError("The propagation interval must be finite and nonnegative.")
 
-        op: np.ndarray = self.operator(k, self.rad_scaling)
+        op: np.ndarray = self.operator(k, self.rad_scaling, rad_scheme=self.rad_scheme)
 
         return expm(op * interval)
 
@@ -85,7 +91,7 @@ class TimeStepper(InitialCondition):
 
         # introduce the time axis and evolution operator
         times: np.ndarray = self.domain.T
-        op: np.ndarray = self.operator(k, self.rad_scaling)
+        op: np.ndarray = self.operator(k, self.rad_scaling, rad_scheme=self.rad_scheme)
 
         # introduce and validate the initial condition
         if initial_state is None:

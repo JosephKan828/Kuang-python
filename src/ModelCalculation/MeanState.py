@@ -27,8 +27,8 @@ class MeanState(Domain, Constant):
     
     def pmean(self) -> np.ndarray:
         """Mean-state pressure profile corresponding to temperature profile through hydrostatic balance"""
-        return self.p0 * (self.Tmean() / self.T0) ** (9.81 / (self.GammaT * 287.0))
+        return self.p0 * (self.Tmean() / self.T0) ** (self.g / (self.GammaT * self.R))
     
     def rhomean(self) -> np.ndarray:
         """Mean-state density profile corresponding to pressure and temperature profiles"""
-        return self.pmean() / (287.0 * self.Tmean())
+        return self.pmean() / (self.R * self.Tmean())

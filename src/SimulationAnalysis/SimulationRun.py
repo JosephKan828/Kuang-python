@@ -7,11 +7,12 @@
 # ====================================================
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from collections.abc import Iterator
 
 import numpy as np
 
+from Configuration.Params import Constant
 from ModelCalculation.MeanState import MeanState
 from Configuration.ModelConfig import ModelConfig, configuration
 from ModelCalculation.TimeStepper import TimeStepper
@@ -96,6 +97,12 @@ class SimulationRun:
 
         domain = self.config.domain
         background = MeanState()
+
+        # Give the background the same constants recorded for this run.
+        for parameter in fields(Constant):
+            setattr(background, parameter.name, getattr(domain, parameter.name))
+
+
         background.Zmax, background.dz = domain.Zmax, domain.dz
         coordinates = {
             "time": domain.T, "k": np.asarray(domain.k),
